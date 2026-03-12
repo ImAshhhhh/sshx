@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: sshx-server
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: SSHX_PORT
+        fromService:
+          type: web
+          name: sshx-server
+          property: port
+      - key: SSHX_HOST
+        value: 0.0.0.0
+      # Optional: add authentication
+      # - key: SSHX_PASSWORD
+      #   sync: false
+    healthCheckPath: /
+    autoDeploy: true
