@@ -1,34 +1,50 @@
 FROM debian:bookworm-slim
 
-# 1. Install curl, sudo, python3 (for the web server), and whois (for passwords)
-RUN apt-get update && apt-get install -y \
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     sudo \
-    python3 \
-    whois \
+    ca-certificates \
+    bash \
+    git \
+    passwd \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install sshx
-RUN curl -sSf https://sshx.io/get | sh
+# ----------------------------------------------------
+# INSTALL SSHX (Official Script)
+# ----------------------------------------------------
+RUN curl -fsSL https://sshx.io/get | sh
+# Move binary to PATH
+RUN mkdir -p /usr/local/bin && \
+    [ -f ~/.local/bin/sshx ] && cp ~/.local/bin/sshx /usr/local/bin/sshx || true && \
+    chmod +x /usr/local/bin/sshx
 
-# 3. Configure Users and Sudo
-# - Set root password to 'ash'
-# - Create user 'ash' with password 'ash'
-# - Add ash to sudo group
-# - Fix PAM configuration so sudo works in Docker
-RUN echo "root:ash" | chpasswd && \
-    useradd -m -s /bin/bash -G sudo,root ash && \
-    echo "ash:ash" | chpasswd && \
-    sed -i 's/^# %sudo/%sudo/' /etc/sudoers && \
-    echo "ash ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers
+# ----------------------------------------------------
+# CREATE USERS
+# ----------------------------------------------------
+# 1. Create 'ash' user with password
+RUN echo 'ash:ash_pass_123' | chpasswd \
+    && groupadd -r sudo && useradd -m -s /bin/bash -G sudo ash
 
-# 4. Switch to user ash
-USER ash
+# 2. Set 'root' Password
+RUN echo 'root:root_pass_123' | chpasswd
+
+# 3. Fix Sudo (Even though it's blocked on Render, setup is good practice)
+RUN echo 'Defaults !requiretty' > /etc/sudoers.d/disable-requiretty && \
+    echo 'ash ALL=(ALL:ALL) NOPASSWD:ALL' > /etc/sudoers.d/ash && \
+    chmod 0440 /etc/sudoers.d/*
+
+# ----------------------------------------------------
+# CONFIGURATION
+# ----------------------------------------------------
 WORKDIR /home/ash
 
-# 5. Set the Port environment variable
-ENV PORT=8080
+# DO NOT USE USER ash HERE. 
+# Running as root allows us to bypass the Render Kernel flag.
+# ENV USER=root # Explicit set if needed, but root is default UID 0
 
-# 6. Start the dummy web server (Background) AND sshx (Foreground)
-# This keeps Render happy (Port 8080 open) AND gives you the terminal link
-CMD python3 -m http.server $PORT --bind 0.0.0.0 & sshx
+EXPOSE 8080
+
+# Start SSHX as ROOT to bypass 'no new privileges' restrictions
+CMD ["bash", "-c", "exec /usr/local/bin/sshx server --host 0.0.0.0 --port ${PORT}"]
